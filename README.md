@@ -51,7 +51,7 @@ A script `download_datasets.sh` is prepared to download and organize required da
 
 An example script to run the demo. 
 ```
-python demo.py --checkpoint=weights/cocolvis_icl_vit_huge.pth --gpu 0
+python demo.py --checkpoint=weights/cocolvis_icl_vit_huge.pth --gpu 0  # or --cpu
 ```
 
 ## Evaluation
