@@ -59,7 +59,7 @@ class InteractiveDemoApp(ttk.Frame):
             'predictor_params': {
                 'net_clicks_limit': tk.IntVar(value=8),
                 'cascade_step': tk.IntVar(value=1),
-                'cascade_adaptive': tk.BooleanVar(value=False),
+                'cascade_adaptive': tk.BooleanVar(value=True),
                 'cascade_clicks': tk.IntVar(value=1)
             },
             'brs_mode': tk.StringVar(value='NoBRS'),
@@ -79,6 +79,10 @@ class InteractiveDemoApp(ttk.Frame):
         self.save_mask_btn = FocusButton(self.menubar, text='Save mask', command=self._save_mask_callback)
         self.save_mask_btn.pack(side=tk.LEFT)
         self.save_mask_btn.configure(state=tk.DISABLED)
+
+        self.save_yolo_btn = FocusButton(self.menubar, text='Save YOLO', command=self._save_yolo_callback)
+        self.save_yolo_btn.pack(side=tk.LEFT)
+        self.save_yolo_btn.configure(state=tk.DISABLED)
 
         self.load_mask_btn = FocusButton(self.menubar, text='Load mask', command=self._load_mask_callback)
         self.load_mask_btn.pack(side=tk.LEFT)
@@ -185,6 +189,7 @@ class InteractiveDemoApp(ttk.Frame):
                 image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_BGR2RGB)
                 self.controller.set_image(image)
                 self.save_mask_btn.configure(state=tk.NORMAL)
+                self.save_yolo_btn.configure(state=tk.NORMAL)
                 self.load_mask_btn.configure(state=tk.NORMAL)
 
     def _save_mask_callback(self):
@@ -205,6 +210,66 @@ class InteractiveDemoApp(ttk.Frame):
                     mask = mask.astype(np.uint8)
                     mask *= 255 // mask.max()
                 cv2.imwrite(filename, mask)
+
+    def _save_yolo_callback(self):
+        """Save segmentation results in YOLO format"""
+        self.menubar.focus_set()
+        if self._check_entry(self):
+            mask = self.controller.result_mask
+            if mask is None or np.max(mask) == 0:
+                messagebox.showwarning("Warning", "No segmentation mask to save!")
+                return
+
+            filename = filedialog.asksaveasfilename(parent=self.master, initialfile='annotations.txt', filetypes=[
+                ("Text files", "*.txt"),
+                ("All files", "*.*"),
+            ], title="Save YOLO annotations as...")
+
+            if len(filename) > 0:
+                self._convert_mask_to_yolo(mask, filename)
+                messagebox.showinfo("Success", f"YOLO annotations saved to {filename}")
+
+    def _convert_mask_to_yolo(self, mask, filename):
+        """Convert segmentation mask to YOLO format"""
+        height, width = mask.shape
+        
+        # Get unique object IDs (excluding background)
+        unique_ids = np.unique(mask)
+        unique_ids = unique_ids[unique_ids > 0]  # Remove background (0)
+        
+        yolo_annotations = []
+        
+        for obj_id in unique_ids:
+            # Create binary mask for current object
+            binary_mask = (mask == obj_id).astype(np.uint8)
+            
+            # Find contours
+            contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                # Skip very small contours
+                if cv2.contourArea(contour) < 10:
+                    continue
+
+                # Convert contour points to normalized coordinates
+                normalized_points = []
+                for point in contour:
+                    x, y = point[0]
+                    # Normalize coordinates to [0, 1]
+                    norm_x = x / width
+                    norm_y = y / height
+                    normalized_points.extend([norm_x, norm_y])
+                
+                # YOLO format: class_id x1 y1 x2 y2 ... xn yn
+                # Using class_id = 0 for all objects (can be modified as needed)
+                class_id = 0
+                yolo_line = f"{class_id} " + " ".join([f"{coord:.6f}" for coord in normalized_points])
+                yolo_annotations.append(yolo_line)
+
+        # Write to file
+        with open(filename, 'w') as f:
+            for annotation in yolo_annotations:
+                f.write(annotation + '\n')
 
     def _load_mask_callback(self):
         if not self.controller.net.with_prev_mask:
